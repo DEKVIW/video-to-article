@@ -1,0 +1,70 @@
+{
+  "llm": {
+    "provider": "openai",
+    "api_key": "your-api-key-here",
+    "base_url": "https://api.openai.com/v1",
+    "model": "gpt-4o-mini",
+    "temperature": 0.3,
+    "max_tokens": 12000,
+    "timeout_seconds": 180,
+    "max_retries": 3
+  },
+  "transcribe": {
+    "model_size": "tiny",
+    "cpu_threads": 4,
+    "asr_engine": "funasr",
+    "funasr_model": "sensevoice",
+    "auto_optimize": true
+  },
+  "youtube": {
+    "cookies_from_browser": "firefox",
+    "cookies_file": "",
+    "po_token": ""
+  },
+  "ai_cover": {
+    "enable": false,
+    "generate_image": true,
+    "export_prompt": true,
+    "provider": "modelscope",
+    "base_url": "https://api-inference.modelscope.cn/",
+    "api_key": "your-modelscope-or-openai-compatible-image-api-key-here",
+    "model": "Qwen/Qwen-Image",
+    "edit_model": "Qwen/Qwen-Image-Edit-2511",
+    "openai_edit_strategy": "auto",
+    "mode": "auto",
+    "use_reference_image": true,
+    "enable_image_edit": true,
+    "send_local_reference_as_base64": true,
+    "fallback_to_text_to_image": true,
+    "reference_image_url": "",
+    "use_model_output_url_in_frontmatter": false,
+    "size": "1344x768",
+    "output_format": "jpg",
+    "submit_timeout_seconds": 300,
+    "download_timeout_seconds": 180,
+    "poll_timeout_seconds": 120,
+    "style": "真实自然的家常餐桌美食摄影，45度俯拍或轻微俯视角，温暖木质餐桌或厨房台面，柔和自然暖光，陶瓷餐具、筷子、小碟、少量真实食材或调料作为环境点缀，画面有生活气息和食欲感，主体是一盘或一碗完成后的菜，环境元素约占画面 20%-35%",
+    "brand": "一览美食",
+    "negative_prompt": "不要文字，不要中文大字，不要英文字母，不要数字，不要水印，不要logo，不要品牌名，不要站点名，不要二维码，不要贴纸，不要YouTube封面风格，不要拼贴图，不要多宫格，不要分屏，不要多个小图，不要菜单页，不要菜谱卡片，不要信息图，不要营养分析页，不要步骤说明页，不要网页界面，不要人物正脸，不要截图质感，不要纯白背景，不要摄影棚白盘孤立图，不要电商产品图，不要菜单样张，不要塑料质感，不要低清晰度，不要畸形餐具，不要变形食物，不要过度饱和。",
+    "poll_interval_seconds": 5,
+    "max_wait_seconds": 600,
+    "force_text_to_image_for_noisy_thumbnail": false,
+    "enable_reference_preprocess": true,
+    "reference_text_score_threshold": 1.25,
+    "reference_min_food_score": 0.38,
+    "reference_crop_min_food_score": 0.42,
+    "reference_crop_top_ratio": 0.18,
+    "reference_crop_bottom_ratio": 0.18
+  },
+  "image_host": {
+    "enable": false,
+    "provider": "easyimage",
+    "api_url": "https://你的图床域名/api/index.php",
+    "token": "your-easyimage-token-here",
+    "token_field": "token",
+    "file_field": "image",
+    "timeout_seconds": 180,
+    "url_json_path": "url",
+    "extra_fields": {}
+  }
+}

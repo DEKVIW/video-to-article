@@ -1,0 +1,73 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+src/*.egg-info/
+.installed.cfg
+*.egg
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# 本地/私有文档默认不入库；仅收录已确认要公开的说明
+docs/**
+!docs/
+!docs/git-clean-contributors.md
+
+# 项目配置和数据（含密钥 / 用户数据）
+config.json
+config - *.json
+config-*.json
+!config.example.json
+data/
+models/
+output/
+logs/
+*.mp3
+*.mp4
+*.wav
+*.m4a
+*.webm
+*.mkv
+
+# Bundled FFmpeg binaries are large; do not commit
+ffmpeg/*.exe
+ffmpeg/ffprobe.exe
+
+# 本地杂项 / 草稿
+cook-search-live.xml
+cook_static_preview.js
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 环境变量
+.env
+.env.local
