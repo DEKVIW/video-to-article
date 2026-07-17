@@ -23,10 +23,8 @@ def _join(parts: List[str]) -> str:
 
 
 def _cover_flags(cover_mode: Optional[str]) -> List[str]:
-    if cover_mode == "prompt_only":
-        return ["--no-cover"]
-    if cover_mode == "off":
-        return ["--no-cover-assets"]
+    if cover_mode in {"prompt_only", "full", "off"}:
+        return ["--cover-pipeline", str(cover_mode)]
     return []
 
 

@@ -10,7 +10,6 @@ from typing import List, Optional
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QButtonGroup,
     QFileDialog,
     QGridLayout,
     QHBoxLayout,
@@ -26,12 +25,11 @@ from qfluentwidgets import (
     ComboBox,
     LineEdit,
     PushButton,
-    RadioButton,
     SpinBox,
 )
 
 from ...config import load_config
-from ...cover import COVER_MODE_OFF, COVER_MODE_PROMPT_ONLY
+from ...cover import COVER_MODE_FULL, COVER_MODE_OFF, COVER_MODE_PROMPT_ONLY
 from ...paths import DATA_DIR, PROMPTS_DIR
 from ...prompts import default_article_prompt_names, list_article_prompts
 from ..theme_style import SPACE_ROW
@@ -80,7 +78,7 @@ class PromptPicker(CardWidget):
         bl.addWidget(self.combo)
         bl.addStretch(1)
 
-        self._hint = _footer_label("成稿模板：prompts/articles")
+        self._hint = _footer_label("选择成稿风格；可点「目录」管理模板")
         attach_card_skeleton(self, header, body, self._hint)
         self.refresh()
 
@@ -91,7 +89,7 @@ class PromptPicker(CardWidget):
         self.combo.clear()
         names = list_article_prompts()
         if not names:
-            self._hint.setText("未找到模板。请在 prompts/articles/ 添加 .md")
+            self._hint.setText("暂无模板，请点「目录」添加文章模板文件")
             self.combo.blockSignals(False)
             return
 
@@ -110,7 +108,7 @@ class PromptPicker(CardWidget):
             pick = defaults[0] if defaults else names[0]
         self.combo.setCurrentText(pick)
         self.combo.blockSignals(False)
-        self._hint.setText(f"{pick} · 共 {len(names)} 个")
+        self._hint.setText(f"当前：{pick}（共 {len(names)} 个）")
         self.changed.emit()
 
     def selected(self) -> List[str]:
@@ -137,51 +135,95 @@ class PromptPicker(CardWidget):
 
 
 class CoverModeBox(CardWidget):
-    """三态封面策略。"""
+    """封面策略：三个同风格勾选框，互斥单选。
+
+    默认「跟随设置」。点任意另一项即切换，无需先取消当前项。
+    三项都不勾 = 本次关闭封面。
+    """
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         header = card_header("封面策略")
         body, bl = _body_box()
-        radios = QHBoxLayout()
-        radios.setSpacing(16)
-        self.radio_config = RadioButton("跟随设置")
-        self.radio_prompt = RadioButton("仅导出提示词")
-        self.radio_off = RadioButton("完全跳过")
-        self.radio_config.setChecked(True)
-        self._group = QButtonGroup(self)
-        for btn in (self.radio_config, self.radio_prompt, self.radio_off):
-            self._group.addButton(btn)
-            btn.setCursor(Qt.PointingHandCursor)
-            radios.addWidget(btn)
-        radios.addStretch(1)
-        bl.addLayout(radios)
+
+        # 统一用 CheckBox（方框），不用 RadioButton，避免圆/方混用
+        self.chk_follow = CheckBox("跟随设置")
+        self.chk_full = CheckBox("启用 AI 封面")
+        self.chk_prompt = CheckBox("仅导出封面提示词")
+        self.chk_follow.setChecked(True)
+        for w in (self.chk_follow, self.chk_full, self.chk_prompt):
+            w.setCursor(Qt.PointingHandCursor)
+            w.setEnabled(True)
+
+        row = QHBoxLayout()
+        row.setSpacing(16)
+        row.addWidget(self.chk_follow)
+        row.addWidget(self.chk_full)
+        row.addWidget(self.chk_prompt)
+        row.addStretch(1)
+        bl.addLayout(row)
         bl.addStretch(1)
-        footer = _footer_label("试跑可选用「仅导出」或「跳过」省时间")
+        # 无说明文案；仅占位对齐同行卡片脚注高度
+        footer = _footer_label("")
+        footer.setText("")
         attach_card_skeleton(self, header, body, footer)
 
+        self._syncing = False
+        self.chk_follow.toggled.connect(lambda c: self._exclusive_pick("follow", c))
+        self.chk_full.toggled.connect(lambda c: self._exclusive_pick("full", c))
+        self.chk_prompt.toggled.connect(lambda c: self._exclusive_pick("prompt", c))
+
+    def _exclusive_pick(self, which: str, checked: bool) -> None:
+        """点选即切换：勾选某一项时自动取消另两项，不要求先取消当前项。"""
+        if self._syncing:
+            return
+        self._syncing = True
+        try:
+            if checked:
+                self.chk_follow.setChecked(which == "follow")
+                self.chk_full.setChecked(which == "full")
+                self.chk_prompt.setChecked(which == "prompt")
+            # 主动取消当前勾选 → 允许全不选（= 本次关闭封面）
+        finally:
+            self._syncing = False
+
     def cover_mode_override(self) -> Optional[str]:
-        if self.radio_prompt.isChecked():
-            return COVER_MODE_PROMPT_ONLY
-        if self.radio_off.isChecked():
-            return COVER_MODE_OFF
-        return None
+        key = self.mode_key()
+        if key == "config":
+            return None
+        return key
 
     def set_mode_key(self, key: str) -> None:
         key = (key or "config").strip()
-        if key in {COVER_MODE_PROMPT_ONLY, "prompt_only", "no_cover"}:
-            self.radio_prompt.setChecked(True)
-        elif key in {COVER_MODE_OFF, "off", "no_cover_assets"}:
-            self.radio_off.setChecked(True)
-        else:
-            self.radio_config.setChecked(True)
+        self._syncing = True
+        try:
+            if key in {COVER_MODE_FULL, "full", "enable"}:
+                self.chk_follow.setChecked(False)
+                self.chk_full.setChecked(True)
+                self.chk_prompt.setChecked(False)
+            elif key in {COVER_MODE_PROMPT_ONLY, "prompt_only", "no_cover"}:
+                self.chk_follow.setChecked(False)
+                self.chk_full.setChecked(False)
+                self.chk_prompt.setChecked(True)
+            elif key in {COVER_MODE_OFF, "off", "no_cover_assets"}:
+                self.chk_follow.setChecked(False)
+                self.chk_full.setChecked(False)
+                self.chk_prompt.setChecked(False)
+            else:
+                self.chk_follow.setChecked(True)
+                self.chk_full.setChecked(False)
+                self.chk_prompt.setChecked(False)
+        finally:
+            self._syncing = False
 
     def mode_key(self) -> str:
-        if self.radio_prompt.isChecked():
-            return "prompt_only"
-        if self.radio_off.isChecked():
-            return "off"
-        return "config"
+        if self.chk_follow.isChecked():
+            return "config"
+        if self.chk_full.isChecked():
+            return COVER_MODE_FULL
+        if self.chk_prompt.isChecked():
+            return COVER_MODE_PROMPT_ONLY
+        return COVER_MODE_OFF
 
 
 class AsrOptions(CardWidget):
@@ -322,7 +364,7 @@ class PipelineOptions(CardWidget):
         self.skip_existing = CheckBox("跳过已完成")
         self.skip_existing.setChecked(True)
         self.skip_existing.setCursor(Qt.PointingHandCursor)
-        self.dry_run = CheckBox("仅预览 dry-run")
+        self.dry_run = CheckBox("仅预览不执行")
         self.dry_run.setCursor(Qt.PointingHandCursor)
 
         # 固定四槽，无内容时隐藏但保留网格节奏（隐藏不占位用 setVisible）
@@ -355,7 +397,7 @@ class PipelineOptions(CardWidget):
         self.dry_run.setVisible(show_dry_run)
         self._limit_row_host.setVisible(show_skip)
 
-        footer = _footer_label("转写时的常用开关；批量可限制条数与 dry-run")
+        footer = _footer_label("常用处理开关；批量时可限制条数或仅预览")
         attach_card_skeleton(self, header, body, footer)
 
     def set_batch_mode(self, batch: bool) -> None:

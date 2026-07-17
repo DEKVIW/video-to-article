@@ -51,6 +51,55 @@ def _path_has_non_ascii(path: Path | str) -> bool:
         return True
 
 
+def _patch_inspect_for_funasr_frozen() -> None:
+    """PyInstaller freezes modules without .py sources.
+
+    funasr's @tables.register calls inspect.getsourcelines for metadata; that
+    raises OSError under frozen builds and aborts registration of SenseVoiceSmall
+    etc. Swallow those errors so models still register.
+    """
+    if not getattr(sys, "frozen", False):
+        return
+    import inspect
+
+    if getattr(inspect, "_yilan_funasr_source_patch", False):
+        return
+
+    _orig_gsl = inspect.getsourcelines
+    _orig_gs = inspect.getsource
+
+    def _safe_getsourcelines(obj, *args, **kwargs):
+        try:
+            return _orig_gsl(obj, *args, **kwargs)
+        except (OSError, TypeError, IOError):
+            return ([""], 0)
+
+    def _safe_getsource(obj, *args, **kwargs):
+        try:
+            return _orig_gs(obj, *args, **kwargs)
+        except (OSError, TypeError, IOError):
+            return ""
+
+    inspect.getsourcelines = _safe_getsourcelines  # type: ignore[assignment]
+    inspect.getsource = _safe_getsource  # type: ignore[assignment]
+    inspect._yilan_funasr_source_patch = True  # type: ignore[attr-defined]
+
+
+def _ensure_funasr_core_models_registered() -> None:
+    """Force-import inference models needed for SenseVoice (packaged app safety net)."""
+    import importlib
+
+    for mod in (
+        "funasr.models.sense_voice.model",
+        "funasr.models.fsmn_vad_streaming.model",
+        "funasr.tokenizer.whisper_tokenizer",
+    ):
+        try:
+            importlib.import_module(mod)
+        except Exception as e:
+            logger.warning(f"预加载 FunASR 模块失败 {mod}: {e}")
+
+
 def _project_sensevoice_dir() -> Path:
     return FUNASR_MODEL_DIR / "models" / "iic" / "SenseVoiceSmall"
 
@@ -63,21 +112,68 @@ def _sensevoice_complete(dir_path: Path) -> bool:
     return all((dir_path / name).is_file() for name in SENSEVOICE_REQUIRED_FILES)
 
 
+def _configured_funasr_dir() -> Path | None:
+    """User override: env VQE_FUNASR_DIR, then config transcribe.funasr_cache_dir."""
+    env = (os.environ.get("VQE_FUNASR_DIR") or os.environ.get("YILAN_FUNASR_DIR") or "").strip()
+    if env:
+        return Path(env)
+    try:
+        from ..config import load_config
+
+        tr = (load_config() or {}).get("transcribe") or {}
+        raw = str(tr.get("funasr_cache_dir") or tr.get("funasr_dir") or "").strip()
+        if raw:
+            return Path(raw)
+    except Exception:
+        pass
+    return None
+
+
+def _same_drive_funasr_root() -> Path | None:
+    """Prefer program-drive data folder (avoids filling system C: when app is on D:)."""
+    try:
+        from ..paths import APP_ROOT
+
+        root_path = Path(APP_ROOT).resolve()
+        drive = root_path.drive  # e.g. 'D:'
+        if not drive:
+            return None
+        # D:\YilanChengWenData\models\funasr  — ASCII-only, same volume as exe
+        candidate = Path(drive + os.sep) / "YilanChengWenData" / "models" / "funasr"
+        if _path_has_non_ascii(candidate):
+            return None
+        return candidate
+    except Exception:
+        return None
+
+
 def _ascii_funasr_root() -> Path:
     """Windows-safe cache root when project path contains non-ASCII (e.g. 中文目录).
 
-    SentencePiece / FunASR native code cannot open model files under non-ASCII
-    paths on Windows even if Python pathlib sees them as existing.
+    Priority:
+      1) 用户自定义（环境变量 / config）
+      2) 与程序同盘的 YilanChengWenData\\models\\funasr（推荐，不占系统盘）
+      3) %LOCALAPPDATA%\\YilanChengWen\\models\\funasr（回退）
     """
-    env = (os.environ.get("VQE_FUNASR_DIR") or "").strip()
-    if env:
-        root = Path(env)
+    custom = _configured_funasr_dir()
+    if custom is not None:
+        root = Path(custom)
         if not _path_has_non_ascii(root):
-            root.parent.mkdir(parents=True, exist_ok=True)
+            root.mkdir(parents=True, exist_ok=True)
             return root
+        logger.warning(
+            "自定义 FunASR 目录含非 ASCII 字符，已忽略: %s（SentencePiece 无法读取）",
+            root,
+        )
+
+    same_drive = _same_drive_funasr_root()
+    if same_drive is not None:
+        same_drive.mkdir(parents=True, exist_ok=True)
+        return same_drive
+
     base = os.environ.get("LOCALAPPDATA") or os.environ.get("TEMP") or "C:\\YilanChengWen"
     root = Path(base) / "YilanChengWen" / "models" / "funasr"
-    root.parent.mkdir(parents=True, exist_ok=True)
+    root.mkdir(parents=True, exist_ok=True)
     return root
 
 
@@ -124,9 +220,22 @@ def _ensure_windows_junction(link: Path, target: Path) -> bool:
 def funasr_runtime_root() -> Path:
     """Directory FunASR should use as MODELSCOPE_CACHE / local model parent.
 
-    Prefers project models/funasr when path is ASCII-safe; otherwise uses
-    %LOCALAPPDATA%\\YilanChengWen\\models\\funasr (optionally junctioned).
+    - 用户自定义（设置 / 环境变量）优先，且须为纯 ASCII 路径
+    - 程序目录为纯英文时：用 exe 旁 models\\funasr
+    - 程序目录含中文时：同盘 YilanChengWenData\\models\\funasr，或 LOCALAPPDATA 回退
     """
+    custom = _configured_funasr_dir()
+    if custom is not None:
+        root = Path(custom)
+        if not _path_has_non_ascii(root):
+            root.mkdir(parents=True, exist_ok=True)
+            logger.info(f"使用自定义 FunASR 模型目录: {root}")
+            return root
+        logger.warning(
+            "自定义 FunASR 目录含非 ASCII，已忽略并回退默认策略: %s",
+            root,
+        )
+
     project = FUNASR_MODEL_DIR
     if not _path_has_non_ascii(project):
         project.mkdir(parents=True, exist_ok=True)
@@ -139,8 +248,8 @@ def funasr_runtime_root() -> Path:
             if not _ensure_windows_junction(safe, project.resolve()):
                 safe.mkdir(parents=True, exist_ok=True)
                 logger.warning(
-                    "项目路径含非 ASCII 字符，FunASR 将使用 ASCII 缓存目录: %s "
-                    "（可将 models\\funasr 整夹拷到该目录，或把项目放到纯英文路径）",
+                    "程序路径含非 ASCII 字符，FunASR 使用安全目录: %s "
+                    "（建议把程序放到纯英文路径，或在设置中指定模型目录）",
                     safe,
                 )
         return safe
@@ -376,7 +485,10 @@ def transcribe_audio_with_funasr(audio_path: str, funasr_model: str = "sensevoic
             "python -m pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu"
         ) from e
 
+    # 必须在 import funasr 之前打补丁：注册装饰器依赖 getsourcelines
+    _patch_inspect_for_funasr_frozen()
     funasr = import_required("funasr", "funasr")
+    _ensure_funasr_core_models_registered()
 
     model_name, is_sensevoice = resolve_funasr_model_name(funasr_model)
     vad_model_name = resolve_funasr_vad_model_name()
@@ -390,13 +502,40 @@ def transcribe_audio_with_funasr(audio_path: str, funasr_model: str = "sensevoic
         )
     load_start = time.time()
 
+    # 打包环境下确认 SenseVoice 已注册，便于日志排查
+    if getattr(sys, "frozen", False) and is_sensevoice:
+        try:
+            from funasr.register import tables
+
+            keys = list(getattr(tables, "model_classes", {}) or {})
+            if "SenseVoiceSmall" not in keys:
+                logger.error(
+                    "SenseVoiceSmall 仍未注册。已注册: %s",
+                    ", ".join(keys[:20]) + ("..." if len(keys) > 20 else ""),
+                )
+                raise RuntimeError(
+                    "打包环境 FunASR 模型注册失败（SenseVoiceSmall）。"
+                    "请使用 0.4.2+ 版本绿色包，或改用开发环境运行。"
+                )
+        except RuntimeError:
+            raise
+        except Exception as e:
+            logger.warning(f"检查 FunASR 注册表失败: {e}")
+
+    # FunASR 的 disable_pbar 读的是 AutoModel 构造参数 self.kwargs，
+    # 仅在 generate() 里传无效（VAD 阶段 inference 仍会刷 tqdm）。
+    # 非 TTY（GUI 日志桥）下 tqdm 的 \r/ANSI 无法原地刷新，会整段糊进日志。
+    common_model_kwargs = dict(
+        disable_update=True,
+        disable_pbar=True,  # 必须在构造时传入，见 funasr AutoModel.inference
+        device="cpu",
+    )
     if is_sensevoice:
         model = funasr.AutoModel(
             model=model_name,
             vad_model=vad_model_name,
             vad_kwargs={"max_single_segment_time": 30000},
-            disable_update=True,
-            device="cpu",
+            **common_model_kwargs,
         )
         generate_kwargs = {"language": "zh", "use_itn": True, "batch_size_s": 60, "merge_vad": True}
     else:
@@ -404,15 +543,24 @@ def transcribe_audio_with_funasr(audio_path: str, funasr_model: str = "sensevoic
             model=model_name,
             vad_model=vad_model_name,
             punc_model="ct-punc",
-            disable_update=True,
-            device="cpu",
+            **common_model_kwargs,
         )
         generate_kwargs = {"batch_size_s": 60}
 
     logger.info(f"FunASR 模型加载完成 (耗时: {format_time(time.time() - load_start)})")
     logger.info("开始 FunASR 转写音频...")
     transcribe_start = time.time()
-    result = model.generate(input=audio_path, **generate_kwargs)
+    # 双保险：环境变量 + generate 侧再次声明（部分子路径读 generate cfg）
+    os.environ["TQDM_DISABLE"] = "1"
+    try:
+        result = model.generate(
+            input=audio_path,
+            disable_pbar=True,  # inference_with_vad 的 pbar_total 读 generate cfg
+            **generate_kwargs,
+        )
+    except TypeError:
+        # older funasr may not accept disable_pbar on generate
+        result = model.generate(input=audio_path, **generate_kwargs)
     text = extract_funasr_text(result)
     text = traditional_to_simplified(text.strip())
     logger.info(f"FunASR 转写完成 (耗时: {format_time(time.time() - transcribe_start)})")

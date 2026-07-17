@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
@@ -296,3 +296,75 @@ def save_youtube_assets(raw_file: Path, metadata: dict, transcript_text: str) ->
         transcript_text,
         platform="YouTube",
     )
+
+
+def search_youtube_videos(
+    keyword: str,
+    count: int = 5,
+    order: str = "relevance",
+    cookies_from_browser: Optional[str] = None,
+    cookies_file: Optional[str] = None,
+    youtube_po_token: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """Search YouTube via yt-dlp flat extract (ytsearchN / ytsearchdateN)."""
+    keyword = (keyword or "").strip()
+    if not keyword:
+        logger.warning("YouTube 搜索关键词为空")
+        return []
+    count = max(1, min(50, int(count or 5)))
+    order = (order or "relevance").strip().lower()
+    prefix = "ytsearchdate" if order in {"date", "pubdate", "upload_date"} else "ytsearch"
+    query = f"{prefix}{count}:{keyword}"
+    yt_dlp = import_required("yt_dlp", "yt-dlp")
+    ydl_opts: dict = {
+        "quiet": True,
+        "no_warnings": True,
+        "extract_flat": True,
+        "skip_download": True,
+        "ignoreerrors": True,
+    }
+    apply_youtube_extractor_options(ydl_opts)
+    apply_youtube_po_token(ydl_opts, youtube_po_token)
+    apply_ytdlp_auth_options(ydl_opts, cookies_from_browser, cookies_file)
+    try:
+        info = extract_info_with_optional_auth_retry(
+            yt_dlp,
+            query,
+            ydl_opts,
+            False,
+            cookies_from_browser,
+            cookies_file,
+        )
+    except Exception as e:
+        logger.error(f"YouTube 搜索失败: {e}")
+        raise
+
+    entries = (info or {}).get("entries") or []
+    results: List[Dict[str, Any]] = []
+    for entry in entries:
+        if not entry:
+            continue
+        vid = entry.get("id") or ""
+        url = (
+            entry.get("webpage_url")
+            or entry.get("url")
+            or (f"https://www.youtube.com/watch?v={vid}" if vid else "")
+        )
+        if not url:
+            continue
+        if not str(url).startswith("http") and vid:
+            url = f"https://www.youtube.com/watch?v={vid}"
+        results.append(
+            {
+                "title": entry.get("title") or "未知标题",
+                "author": entry.get("channel") or entry.get("uploader") or "",
+                "url": url,
+                "duration": entry.get("duration"),
+                "play": entry.get("view_count"),
+                "platform": "youtube",
+                "id": vid,
+            }
+        )
+        if len(results) >= count:
+            break
+    return results

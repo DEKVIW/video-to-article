@@ -79,13 +79,15 @@ class DownloadPage(QWidget):
         opt_row = QHBoxLayout()
         opt_row.setSpacing(SPACE_ROW)
         self.media_type = ComboBox()
-        self._media_keys = ["video", "audio", "both", "none"]
-        for label, key in (
+        # 常用单项在前；「音频+视频」靠后；自定义组合最末
+        self._preset_items = (
             ("仅视频", "video"),
             ("仅音频", "audio"),
-            ("音频+视频", "both"),
             ("仅字幕", "none"),
-        ):
+            ("音频+视频", "both"),
+            ("自定义组合…", "custom"),
+        )
+        for label, key in self._preset_items:
             self.media_type.addItem(label)
             self.media_type.setItemData(self.media_type.count() - 1, key)
         self.limit_edit = LineEdit()
@@ -96,7 +98,29 @@ class DownloadPage(QWidget):
         opt_row.addWidget(CaptionLabel("限制"))
         opt_row.addWidget(self.limit_edit)
         opts_layout.addLayout(opt_row)
-        self.download_subs = CheckBox("下载字幕（srt/vtt）")
+
+        # 自定义组合：视频 / 音频 / 字幕 多选
+        custom_row = QHBoxLayout()
+        custom_row.setSpacing(16)
+        self.custom_host = QWidget()
+        ch = QHBoxLayout(self.custom_host)
+        ch.setContentsMargins(0, 0, 0, 0)
+        ch.setSpacing(16)
+        self.chk_video = CheckBox("视频")
+        self.chk_audio = CheckBox("音频")
+        self.chk_subs = CheckBox("字幕")
+        self.chk_video.setChecked(True)
+        self.chk_audio.setChecked(True)
+        for w in (self.chk_video, self.chk_audio, self.chk_subs):
+            ch.addWidget(w)
+        ch.addStretch(1)
+        custom_row.addWidget(CaptionLabel("组合"))
+        custom_row.addWidget(self.custom_host, 1)
+        self._custom_row_widget = QWidget()
+        self._custom_row_widget.setLayout(custom_row)
+        opts_layout.addWidget(self._custom_row_widget)
+
+        self.download_subs = CheckBox("同时下载字幕（srt/vtt）")
         self.download_subs.setChecked(False)
         opts_layout.addWidget(self.download_subs)
         lang_row = QHBoxLayout()
@@ -106,11 +130,12 @@ class DownloadPage(QWidget):
         lang_row.addWidget(CaptionLabel("语言"))
         lang_row.addWidget(self.subs_lang, 1)
         opts_layout.addLayout(lang_row)
-        opts_layout.addWidget(CaptionLabel("不转写、不调用大模型、不生成封面"))
+        opts_layout.addWidget(CaptionLabel("仅下载媒资，不转写、不生成文章"))
         self.media_type.currentIndexChanged.connect(self._on_media_type_changed)
+        for w in (self.chk_video, self.chk_audio, self.chk_subs):
+            w.toggled.connect(self._on_custom_toggled)
         self._on_media_type_changed()
 
-        # 顶对齐，避免矮卡片被拉高
         root.addWidget(grid_two_col([src_box, opts]))
 
         self.cookies = CookiesOptions()
@@ -120,6 +145,13 @@ class DownloadPage(QWidget):
         self.radio_url.toggled.connect(self._sync_enabled)
         self._sync_enabled()
 
+    def _preset_key(self) -> str:
+        data = self.media_type.currentData()
+        return str(data) if data else "video"
+
+    def _is_custom(self) -> bool:
+        return self._preset_key() == "custom"
+
     def _sync_enabled(self) -> None:
         is_url = self.radio_url.isChecked()
         self.url_edit.setEnabled(is_url)
@@ -127,12 +159,24 @@ class DownloadPage(QWidget):
         self.limit_edit.setEnabled(not is_url)
 
     def _on_media_type_changed(self) -> None:
-        # 仅字幕时强制勾选下载字幕
-        if self.media_type_value() == "none":
-            self.download_subs.setChecked(True)
-            self.download_subs.setEnabled(False)
+        custom = self._is_custom()
+        self._custom_row_widget.setVisible(custom)
+        key = self._preset_key()
+        if custom:
+            self.download_subs.setVisible(False)
+            # 字幕勾选跟自定义「字幕」同步
+            self.download_subs.setChecked(self.chk_subs.isChecked())
         else:
-            self.download_subs.setEnabled(True)
+            self.download_subs.setVisible(True)
+            if key == "none":
+                self.download_subs.setChecked(True)
+                self.download_subs.setEnabled(False)
+            else:
+                self.download_subs.setEnabled(True)
+
+    def _on_custom_toggled(self) -> None:
+        if self._is_custom():
+            self.download_subs.setChecked(self.chk_subs.isChecked())
 
     def _browse(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
@@ -149,15 +193,22 @@ class DownloadPage(QWidget):
         return self.radio_batch.isChecked()
 
     def media_type_value(self) -> str:
-        data = self.media_type.currentData()
-        if data:
-            return str(data)
-        idx = self.media_type.currentIndex()
-        if 0 <= idx < len(self._media_keys):
-            return self._media_keys[idx]
-        return "video"
+        key = self._preset_key()
+        if key != "custom":
+            return key
+        want_v = self.chk_video.isChecked()
+        want_a = self.chk_audio.isChecked()
+        if want_v and want_a:
+            return "both"
+        if want_v:
+            return "video"
+        if want_a:
+            return "audio"
+        return "none"
 
     def download_subs_enabled(self) -> bool:
+        if self._is_custom():
+            return bool(self.chk_subs.isChecked())
         return bool(self.download_subs.isChecked())
 
     def subtitle_langs(self) -> list[str] | None:
@@ -178,8 +229,15 @@ class DownloadPage(QWidget):
             return None
 
     def validate(self) -> str | None:
+        if self._is_custom():
+            if not (
+                self.chk_video.isChecked()
+                or self.chk_audio.isChecked()
+                or self.chk_subs.isChecked()
+            ):
+                return "自定义组合请至少勾选：视频 / 音频 / 字幕 之一"
         if self.media_type_value() == "none" and not self.download_subs_enabled():
-            return "选择「仅字幕」时请勾选「下载字幕」"
+            return "选择「仅字幕」时需要下载字幕"
         if self.is_batch():
             path = self.batch_edit.text().strip()
             if not path:

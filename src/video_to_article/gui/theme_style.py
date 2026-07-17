@@ -48,6 +48,20 @@ def apply_app_typography(app: QApplication) -> None:
         QWidget {{
             font-size: {FONT_BODY}pt;
         }}
+        /* 主区上下分割：可拖动改日志高度，把手更易点中 */
+        QSplitter#mainWorkSplitter::handle:vertical {{
+            height: 8px;
+            margin: 2px 40px;
+            background: #d0d0d0;
+            border-radius: 2px;
+        }}
+        QSplitter#mainWorkSplitter::handle:vertical:hover {{
+            background: #0078d4;
+        }}
+        CaptionLabel#logStage {{
+            color: #666666;
+            padding-left: 4px;
+        }}
         QLabel {{
             font-size: {FONT_BODY}pt;
         }}

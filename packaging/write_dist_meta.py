@@ -89,12 +89,20 @@ def main() -> int:
     models_note = dist / "models" / "README.txt"
     if not models_note.is_file():
         models_note.write_text(
-            "Models directory (external)\n"
-            "===========================\n"
-            "FunASR / Whisper weights are NOT bundled by default.\n"
-            "1. Copy your models folder next to YilanChengWen.exe\n"
-            "2. Or allow first-run model download into this folder\n"
-            "Download-only mode works without local ASR models.\n",
+            "语音模型目录说明（FunASR / Whisper）\n"
+            "====================================\n"
+            "主程序默认不附带模型权重（体积大）。\n\n"
+            "【推荐】程序放在纯英文路径，例如 D:\\Apps\\YilanChengWen\\\n"
+            "此时联网下载 / 离线模型包优先使用：\n"
+            "  本目录下 funasr\\  （即 程序\\models\\funasr\\）\n\n"
+            "【程序路径含中文时】不会写到中文路径下，而使用：\n"
+            "  同盘：盘符:\\YilanChengWenData\\models\\funasr\\\n"
+            "  或回退：%LOCALAPPDATA%\\YilanChengWen\\models\\funasr\\\n\n"
+            "【自定义】设置 → 转写 → FunASR 模型目录（须纯英文路径）\n"
+            "或环境变量 VQE_FUNASR_DIR / YILAN_FUNASR_DIR\n\n"
+            "离线包：解压后把 models 合并到 exe 同级；确认存在\n"
+            "  funasr\\models\\iic\\SenseVoiceSmall\\model.pt\n"
+            "仅下载音视频不需要本目录模型。详见 使用说明.txt\n",
             encoding="utf-8-sig",
         )
 

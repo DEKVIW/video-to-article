@@ -10,6 +10,8 @@
 import sys
 from pathlib import Path
 
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+
 block_cipher = None
 
 # Spec may be analyzed with cwd = project root or packaging/
@@ -28,6 +30,10 @@ datas = [
     (str(ROOT / "packaging" / "app.ico"), "."),
     (str(ROOT / "src" / "video_to_article" / "gui" / "resources"), "video_to_article/gui/resources"),
 ]
+
+# funasr 在 import 时读取包内 version.txt（非 .py），必须打进 onedir
+# collect_data_files 会收集 funasr 下所有数据文件（目前主要是 version.txt）
+datas += collect_data_files("funasr")
 
 hiddenimports = [
     "PySide6.QtCore",
@@ -59,9 +65,22 @@ hiddenimports = [
     "opencc",
     # ASR stack (may pull torch — large)
     "funasr",
+    "funasr.auto",
+    "funasr.auto.auto_model",
+    "funasr.register",
+    "funasr.models.sense_voice",
+    "funasr.models.sense_voice.model",
+    "funasr.models.fsmn_vad_streaming",
+    "funasr.models.fsmn_vad_streaming.model",
+    "funasr.tokenizer.whisper_tokenizer",
     "modelscope",
     "faster_whisper",
 ]
+# 确保 funasr 子模块被分析到（与 datas 互补）
+try:
+    hiddenimports += collect_submodules("funasr")
+except Exception:
+    pass
 
 _icon = str(ROOT / "packaging" / "app.ico")
 

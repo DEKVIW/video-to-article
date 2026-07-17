@@ -86,8 +86,8 @@ def main() -> None:
     from video_to_article.gui.branding import APP_NAME_EN, APP_ORG, APP_WINDOW_TITLE, icon_path
     from video_to_article.gui.main_window import MainWindow
     from video_to_article.logging_config import configure_logging, ensure_utf8_stdio
-    from video_to_article.media.ffmpeg_tools import ensure_ffmpeg_on_path, ffmpeg_status_message
-    from video_to_article.paths import CONFIG_EXAMPLE_FILE, CONFIG_FILE, ensure_runtime_dirs, get_app_root
+    from video_to_article.media.ffmpeg_tools import ensure_ffmpeg_on_path
+    from video_to_article.paths import CONFIG_EXAMPLE_FILE, CONFIG_FILE, ensure_runtime_dirs
 
     ensure_utf8_stdio()
     configure_logging()
@@ -124,9 +124,8 @@ def main() -> None:
         QMessageBox.warning(
             window,
             "缺少配置",
-            "未找到 config.json。\n"
-            "请在程序目录放置 config.json（可复制 config.example.json 后填写 API Key）。\n"
-            f"当前目录：{get_app_root()}",
+            "尚未找到配置文件。\n"
+            "请打开「设置」填写大模型 API Key，或从 config.example.json 复制为 config.json 后重试。",
         )
 
     sys.exit(app.exec())

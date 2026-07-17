@@ -25,6 +25,13 @@ from PySide6.QtWidgets import (
 )
 
 from ...config import deep_update, load_config, save_config
+from ...cover import (
+    COVER_MODE_FULL,
+    COVER_MODE_OFF,
+    COVER_MODE_PROMPT_ONLY,
+    pipeline_to_legacy_flags,
+    resolve_cover_pipeline_from_config,
+)
 
 
 def _scroll_page(inner: QWidget) -> QScrollArea:
@@ -51,17 +58,54 @@ class SettingsDialog(QDialog):
         self._build_cover_tab()
         self._build_host_tab()
 
-        note = QLabel("设置写入项目根目录 config.json。密钥仅保存在本机，请勿提交到 Git。")
-        note.setWordWrap(True)
-        note.setStyleSheet("color: #666;")
-        root.addWidget(note)
-
         buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self._save)
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)
 
         self.load_from_disk()
+
+    def _on_cover_enable_toggled(self, checked: bool) -> None:
+        if self._cover_pipeline_syncing:
+            return
+        self._cover_pipeline_syncing = True
+        try:
+            if checked:
+                self.cover_prompt_only.setChecked(False)
+        finally:
+            self._cover_pipeline_syncing = False
+
+    def _on_cover_prompt_only_toggled(self, checked: bool) -> None:
+        if self._cover_pipeline_syncing:
+            return
+        self._cover_pipeline_syncing = True
+        try:
+            if checked:
+                self.cover_enable.setChecked(False)
+        finally:
+            self._cover_pipeline_syncing = False
+
+    def _cover_pipeline_from_ui(self) -> str:
+        if self.cover_enable.isChecked():
+            return COVER_MODE_FULL
+        if self.cover_prompt_only.isChecked():
+            return COVER_MODE_PROMPT_ONLY
+        return COVER_MODE_OFF
+
+    def _apply_cover_pipeline_to_ui(self, pipeline: str) -> None:
+        self._cover_pipeline_syncing = True
+        try:
+            if pipeline == COVER_MODE_FULL:
+                self.cover_enable.setChecked(True)
+                self.cover_prompt_only.setChecked(False)
+            elif pipeline == COVER_MODE_PROMPT_ONLY:
+                self.cover_enable.setChecked(False)
+                self.cover_prompt_only.setChecked(True)
+            else:
+                self.cover_enable.setChecked(False)
+                self.cover_prompt_only.setChecked(False)
+        finally:
+            self._cover_pipeline_syncing = False
 
     def _build_llm_tab(self) -> None:
         page = QWidget()
@@ -100,13 +144,19 @@ class SettingsDialog(QDialog):
             self.tr_model_size.addItem(size, size)
         self.tr_threads = QSpinBox()
         self.tr_threads.setRange(1, 64)
-        self.tr_auto = QCheckBox("auto_optimize（配置字段，供兼容）")
+        self.tr_auto = QCheckBox("自动优化相关兼容开关")
+        self.tr_funasr_dir = QLineEdit()
+        self.tr_funasr_dir.setPlaceholderText("留空则自动选择")
         form.addRow("默认 ASR 引擎", self.tr_engine)
         form.addRow("FunASR 模型", self.tr_funasr)
         form.addRow("Whisper 大小", self.tr_model_size)
         form.addRow("CPU 线程", self.tr_threads)
+        form.addRow("FunASR 模型目录", self.tr_funasr_dir)
         form.addRow(self.tr_auto)
-        tip = QLabel("工作台「高级 ASR」勾选后可覆盖本次运行；此处为默认值。")
+        tip = QLabel(
+            "模型目录为语音模型的下载与缓存位置；路径中请避免中文等非英文字符。"
+            "留空时由程序自动选择。单次任务可在工作台「高级 ASR」临时覆盖引擎参数。"
+        )
         tip.setWordWrap(True)
         form.addRow(tip)
         self.tabs.addTab(_scroll_page(page), "转写")
@@ -123,7 +173,7 @@ class SettingsDialog(QDialog):
         form.addRow("默认从浏览器读 cookies", self.yt_browser)
         form.addRow("默认 cookies 文件", self.yt_cookies_file)
         form.addRow("PO Token", self.yt_po_token)
-        tip = QLabel("工作台里的 Cookies 选项会覆盖这里的默认值。")
+        tip = QLabel("工作台单次任务中的 Cookies 选项会覆盖此处的默认值。")
         tip.setWordWrap(True)
         form.addRow(tip)
         self.tabs.addTab(_scroll_page(page), "YouTube / 下载")
@@ -134,11 +184,14 @@ class SettingsDialog(QDialog):
 
         base = QGroupBox("基础开关与服务")
         form = QFormLayout(base)
-        self.cover_enable = QCheckBox("启用 AI 封面流水线")
-        self.cover_generate = QCheckBox("调用生图 API")
-        self.cover_export = QCheckBox("导出封面提示词文件")
-        self.cover_generate.setChecked(True)
-        self.cover_export.setChecked(True)
+        # 互斥：启用 AI 封面（提示词+API） / 仅导出提示词；都不勾=关闭
+        self.cover_enable = QCheckBox("启用 AI 封面（提示词 + 生图 API）")
+        self.cover_prompt_only = QCheckBox("仅导出封面提示词（不调生图 API）")
+        self.cover_enable.setChecked(False)
+        self.cover_prompt_only.setChecked(False)
+        self._cover_pipeline_syncing = False
+        self.cover_enable.toggled.connect(self._on_cover_enable_toggled)
+        self.cover_prompt_only.toggled.connect(self._on_cover_prompt_only_toggled)
         self.cover_provider = QLineEdit()
         self.cover_base_url = QLineEdit()
         self.cover_api_key = QLineEdit()
@@ -150,8 +203,7 @@ class SettingsDialog(QDialog):
         self.cover_format = QLineEdit()
         self.cover_brand = QLineEdit()
         form.addRow(self.cover_enable)
-        form.addRow(self.cover_generate)
-        form.addRow(self.cover_export)
+        form.addRow(self.cover_prompt_only)
         form.addRow("Provider", self.cover_provider)
         form.addRow("Base URL", self.cover_base_url)
         form.addRow("API Key", self.cover_api_key)
@@ -296,6 +348,9 @@ class SettingsDialog(QDialog):
         self.tr_model_size.setCurrentIndex(sidx if sidx >= 0 else 0)
         self.tr_threads.setValue(int(tr.get("cpu_threads") or 4))
         self.tr_auto.setChecked(bool(tr.get("auto_optimize", True)))
+        self.tr_funasr_dir.setText(
+            str(tr.get("funasr_cache_dir") or tr.get("funasr_dir") or "")
+        )
 
         yt = self._config.get("youtube") or {}
         browser = str(yt.get("cookies_from_browser") or "")
@@ -305,9 +360,7 @@ class SettingsDialog(QDialog):
         self.yt_po_token.setText(str(yt.get("po_token") or ""))
 
         cover = self._config.get("ai_cover") or {}
-        self.cover_enable.setChecked(bool(cover.get("enable")))
-        self.cover_generate.setChecked(bool(cover.get("generate_image", True)))
-        self.cover_export.setChecked(bool(cover.get("export_prompt", True)))
+        self._apply_cover_pipeline_to_ui(resolve_cover_pipeline_from_config(cover))
         self.cover_provider.setText(str(cover.get("provider") or ""))
         self.cover_base_url.setText(str(cover.get("base_url") or ""))
         self.cover_api_key.setText(str(cover.get("api_key") or ""))
@@ -383,6 +436,7 @@ class SettingsDialog(QDialog):
                 "model_size": self.tr_model_size.currentData() or "tiny",
                 "cpu_threads": self.tr_threads.value(),
                 "auto_optimize": self.tr_auto.isChecked(),
+                "funasr_cache_dir": self.tr_funasr_dir.text().strip(),
             },
             "youtube": {
                 "cookies_from_browser": self.yt_browser.currentData() or "",
@@ -390,9 +444,8 @@ class SettingsDialog(QDialog):
                 "po_token": self.yt_po_token.text().strip(),
             },
             "ai_cover": {
-                "enable": self.cover_enable.isChecked(),
-                "generate_image": self.cover_generate.isChecked(),
-                "export_prompt": self.cover_export.isChecked(),
+                **pipeline_to_legacy_flags(self._cover_pipeline_from_ui()),
+                "pipeline": self._cover_pipeline_from_ui(),
                 "provider": self.cover_provider.text().strip(),
                 "base_url": self.cover_base_url.text().strip(),
                 "api_key": self.cover_api_key.text().strip(),
@@ -443,7 +496,7 @@ class SettingsDialog(QDialog):
             deep_update(current, self._collect_updates())
             save_config(current)
             self._config = current
-            QMessageBox.information(self, "设置", "已保存到 config.json")
+            QMessageBox.information(self, "设置", "设置已保存")
             self.accept()
         except Exception as exc:
             QMessageBox.critical(self, "保存失败", str(exc))

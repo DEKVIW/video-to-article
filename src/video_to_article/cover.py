@@ -45,48 +45,83 @@ COVER_MODE_FULL = "full"
 COVER_MODE_PROMPT_ONLY = "prompt_only"
 COVER_MODE_OFF = "off"
 
+# ai_cover.pipeline 取值（勿与 ai_cover.mode 文生/图生策略混淆）
+COVER_PIPELINE_VALUES = {COVER_MODE_FULL, COVER_MODE_PROMPT_ONLY, COVER_MODE_OFF}
+
+
+def resolve_cover_pipeline_from_config(cover_config: Optional[dict]) -> str:
+    """Map ai_cover config → pipeline mode.
+
+    Preferred field: ``pipeline`` = full | prompt_only | off
+
+    Legacy (仍可读):
+      enable + generate_image + export_prompt
+    """
+    if not isinstance(cover_config, dict):
+        cover_config = {}
+
+    raw = str(
+        cover_config.get("pipeline")
+        or cover_config.get("cover_pipeline")
+        or ""
+    ).strip().lower()
+    if raw in COVER_PIPELINE_VALUES:
+        return raw
+
+    # legacy bools
+    if any(k in cover_config for k in ("enable", "generate_image", "export_prompt")):
+        if not bool(cover_config.get("enable", False)):
+            return COVER_MODE_OFF
+        if bool(cover_config.get("generate_image", True)):
+            return COVER_MODE_FULL
+        if bool(cover_config.get("export_prompt", True)):
+            return COVER_MODE_PROMPT_ONLY
+        return COVER_MODE_OFF
+
+    return COVER_MODE_OFF
+
+
+def pipeline_to_legacy_flags(pipeline: str) -> dict:
+    """Mirror pipeline into legacy enable/generate_image/export_prompt for old readers."""
+    pipeline = normalize_cover_pipeline_mode(pipeline)
+    if pipeline == COVER_MODE_FULL:
+        return {"enable": True, "generate_image": True, "export_prompt": True}
+    if pipeline == COVER_MODE_PROMPT_ONLY:
+        return {"enable": True, "generate_image": False, "export_prompt": True}
+    return {"enable": False, "generate_image": False, "export_prompt": False}
+
 
 def resolve_cover_pipeline_mode(
     *,
     no_cover: bool = False,
     no_cover_assets: bool = False,
     config: Optional[dict] = None,
+    cover_pipeline: Optional[str] = None,
 ) -> str:
-    """Resolve cover pipeline mode. CLI wins over config defaults.
+    """Resolve cover pipeline mode. CLI / explicit pipeline wins over config.
 
-    - full: export prompt/metadata + call image API (+ optional upload)
-    - prompt_only: export cover-prompt.txt + cover-ai.json only (manual web gen)
-    - off: write nothing cover-related
+    - full: 提示词 + 调用生图 API（文生图/图生图）
+    - prompt_only: 仅导出 cover-prompt.txt 等（不调 API）
+    - off: 不做封面相关
     """
     if no_cover_assets:
         return COVER_MODE_OFF
+    if cover_pipeline is not None and str(cover_pipeline).strip():
+        return normalize_cover_pipeline_mode(cover_pipeline)
     if no_cover:
         return COVER_MODE_PROMPT_ONLY
 
     cover_config = (config or {}).get("ai_cover", {}) if isinstance(config, dict) else {}
-    if not isinstance(cover_config, dict):
-        cover_config = {}
-
-    if not cover_config.get("enable", False):
-        return COVER_MODE_OFF
-
-    generate_image = bool(cover_config.get("generate_image", True))
-    export_prompt = bool(cover_config.get("export_prompt", True))
-
-    if generate_image:
-        return COVER_MODE_FULL
-    if export_prompt:
-        return COVER_MODE_PROMPT_ONLY
-    return COVER_MODE_OFF
+    return resolve_cover_pipeline_from_config(cover_config)
 
 
 def cover_pipeline_mode_label(mode: str) -> str:
     """Human-readable cover pipeline mode for CLI banners."""
     if mode == COVER_MODE_FULL:
-        return "完整（提示词 + 自动生图）"
+        return "启用 AI 封面（提示词 + 生图 API）"
     if mode == COVER_MODE_PROMPT_ONLY:
-        return "仅导出提示词/元数据（不调生图 API）"
-    return "关闭"
+        return "仅导出封面提示词"
+    return "关闭（不做封面）"
 
 
 def cover_mode_exports_assets(mode: str) -> bool:

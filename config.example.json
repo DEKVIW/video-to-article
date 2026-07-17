@@ -14,7 +14,8 @@
     "cpu_threads": 4,
     "asr_engine": "funasr",
     "funasr_model": "sensevoice",
-    "auto_optimize": true
+    "auto_optimize": true,
+    "funasr_cache_dir": ""
   },
   "youtube": {
     "cookies_from_browser": "firefox",
@@ -22,9 +23,10 @@
     "po_token": ""
   },
   "ai_cover": {
+    "pipeline": "off",
     "enable": false,
-    "generate_image": true,
-    "export_prompt": true,
+    "generate_image": false,
+    "export_prompt": false,
     "provider": "modelscope",
     "base_url": "https://api-inference.modelscope.cn/",
     "api_key": "your-modelscope-or-openai-compatible-image-api-key-here",

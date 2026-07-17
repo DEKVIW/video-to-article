@@ -70,6 +70,13 @@ if (-not (Test-Path $ExePath)) {
     throw "Build finished but $AppName.exe not found under $OutDir"
 }
 
+# FunASR imports package data version.txt; fail fast if PyInstaller dropped it
+$funasrVersion = Join-Path $OutDir "_internal\funasr\version.txt"
+if (-not (Test-Path -LiteralPath $funasrVersion)) {
+    throw "Missing bundled FunASR data: $funasrVersion (check packaging/*.spec collect_data_files('funasr'))"
+}
+Write-Host "    FunASR version.txt OK: $funasrVersion"
+
 Write-Host "==> Assembling runtime files next to exe"
 $exSrc = Join-Path $Root "config.example.json"
 if (Test-Path $exSrc) {

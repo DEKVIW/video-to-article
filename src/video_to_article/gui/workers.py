@@ -22,7 +22,11 @@ from ..processor import (
     process_video,
 )
 from ..providers.bilibili import format_duration, format_play_count, search_bilibili_videos
-from ..providers.youtube import get_youtube_collection_urls, make_youtube_batch_root
+from ..providers.youtube import (
+    get_youtube_collection_urls,
+    make_youtube_batch_root,
+    search_youtube_videos,
+)
 from ..providers.youtube_auth import (
     check_youtube_auth,
     inspect_cookie_file,
@@ -77,7 +81,8 @@ class JobRequest:
     cpu_threads: int = 4
     asr_engine: str = "funasr"
     funasr_model: str = "sensevoice"
-    # bilibili search
+    # video search
+    search_platform: str = "bilibili"  # bilibili | youtube
     search_keyword: str = ""
     search_count: int = 5
     search_order: str = "totalrank"
@@ -126,8 +131,12 @@ class JobWorker(QObject):
             self.log_line.emit(text)
 
     def _resolve_cover_mode(self) -> str:
-        if self.request.cover_mode:
-            return self.request.cover_mode
+        # GUI: None/"config" = 跟随设置；full/prompt_only/off = 本次覆盖
+        mode = self.request.cover_mode
+        if mode and str(mode).strip().lower() not in {"", "config", "none"}:
+            from ..cover import normalize_cover_pipeline_mode
+
+            return normalize_cover_pipeline_mode(mode)
         try:
             config = load_config()
         except Exception:
@@ -386,15 +395,28 @@ class JobWorker(QObject):
         return results
 
     def _run_bilibili_search(self) -> list:
+        """Platform search (kind kept for compatibility; supports bilibili / youtube)."""
         keyword = self.request.search_keyword.strip()
         count = max(1, int(self.request.search_count or 5))
         order = self.request.search_order or "totalrank"
-        self.stage.emit("B站搜索中")
+        platform = (self.request.search_platform or "bilibili").strip().lower()
+        label = "YouTube" if platform == "youtube" else "B 站"
+        self.stage.emit(f"{label}搜索中")
         self.progress.emit(0, 0)
-        print(f"\n搜索B站视频: {keyword}")
+        print(f"\n搜索{label}视频: {keyword}")
         print(f"   数量: {count}")
         print(f"   排序: {order}")
-        videos = search_bilibili_videos(keyword=keyword, count=count, order=order)
+        if platform == "youtube":
+            videos = search_youtube_videos(
+                keyword=keyword,
+                count=count,
+                order=order,
+                cookies_from_browser=self.request.cookies_from_browser or None,
+                cookies_file=self.request.cookies_file or None,
+                youtube_po_token=self.request.youtube_po_token or None,
+            )
+        else:
+            videos = search_bilibili_videos(keyword=keyword, count=count, order=order)
         if not videos:
             raise ValueError("搜索无结果或搜索失败")
         print(f"\n找到 {len(videos)} 个视频:")
@@ -403,7 +425,7 @@ class JobWorker(QObject):
             print(
                 f"     时长: {format_duration(video.get('duration', 0))}, "
                 f"播放: {format_play_count(video.get('play', 0))}, "
-                f"UP主: {video.get('author')}"
+                f"作者: {video.get('author')}"
             )
         self.search_results.emit(videos)
         self.progress.emit(len(videos), len(videos))

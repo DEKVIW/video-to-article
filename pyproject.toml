@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "video-to-article"
-version = "0.3.0"
+version = "0.4.5"
 description = "Video transcription and snack recipe summarization toolkit."
 readme = "README.md"
 requires-python = ">=3.10"

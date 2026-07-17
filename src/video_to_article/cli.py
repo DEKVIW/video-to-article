@@ -127,14 +127,22 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--prompts", type=str, help="提示词名称，多个用逗号分隔（如: evaluation,summary）")
     parser.add_argument("--no-llm", action="store_true", help="禁用大模型优化")
     parser.add_argument(
+        "--cover-pipeline",
+        type=str,
+        default=None,
+        choices=["off", "prompt_only", "full"],
+        help="封面策略：off=关闭, prompt_only=仅导出提示词, full=启用 AI 封面（提示词+生图 API）；"
+        "默认读 config.ai_cover.pipeline",
+    )
+    parser.add_argument(
         "--no-cover",
         action="store_true",
-        help="不调用生图 API / 图床；仍导出 cover-prompt.txt 与 cover-ai.json，便于手动网页生图",
+        help="等价于 --cover-pipeline prompt_only（不调生图 API，仍导出提示词）",
     )
     parser.add_argument(
         "--no-cover-assets",
         action="store_true",
-        help="完全跳过封面相关产物（不写提示词、不写元数据、不生图）",
+        help="等价于 --cover-pipeline off（完全跳过封面）",
     )
     parser.add_argument("--model-size", type=str, default="tiny", choices=["tiny", "base", "small"], help="Whisper 模型大小")
     parser.add_argument("--cpu-threads", type=int, default=4, help="CPU 线程数")
@@ -165,9 +173,14 @@ def parse_prompt_names(prompts_arg: Optional[str]) -> Optional[list[str]]:
 
 
 def resolve_args_cover_mode(args) -> str:
-    """CLI cover flags win over config.youtube/ai_cover defaults."""
+    """CLI cover flags win over config ai_cover.pipeline defaults."""
     if getattr(args, "no_cover_assets", False) and getattr(args, "no_cover", False):
         print("提示: 同时指定了 --no-cover 与 --no-cover-assets，以 --no-cover-assets 为准（完全跳过封面）")
+    explicit = getattr(args, "cover_pipeline", None)
+    if explicit and (
+        getattr(args, "no_cover", False) or getattr(args, "no_cover_assets", False)
+    ):
+        print("提示: 同时指定了 --cover-pipeline 与 --no-cover*，以 --cover-pipeline 为准")
     try:
         config = load_config()
     except Exception:
@@ -176,6 +189,7 @@ def resolve_args_cover_mode(args) -> str:
         no_cover=bool(getattr(args, "no_cover", False)),
         no_cover_assets=bool(getattr(args, "no_cover_assets", False)),
         config=config,
+        cover_pipeline=explicit,
     )
 
 

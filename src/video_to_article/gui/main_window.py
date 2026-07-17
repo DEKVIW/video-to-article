@@ -27,11 +27,9 @@ from qfluentwidgets import (
     NavigationItemPosition,
     PrimaryPushButton,
     PushButton,
-    SubtitleLabel,
 )
 
 from ..config import load_config
-from ..media.ffmpeg_tools import ffmpeg_status_message
 from ..paths import DATA_DIR, OUTPUT_DIR, ensure_runtime_dirs
 from .branding import (
     APP_ABOUT,
@@ -62,7 +60,7 @@ MODE_TOOLS = "tools"
 MODE_LABELS = [
     (MODE_SINGLE, "单条处理"),
     (MODE_BATCH, "批量处理"),
-    (MODE_SEARCH, "B站搜索"),
+    (MODE_SEARCH, "视频搜索"),
     (MODE_DOWNLOAD, "仅下载"),
     (MODE_TOOLS, "补跑工具"),
 ]
@@ -121,9 +119,9 @@ class MainWindow(QMainWindow):
         file_menu.addAction(act_quit)
 
         open_menu = menu.addMenu("打开")
-        act_data = QAction("data 目录", self)
+        act_data = QAction("数据目录", self)
         act_data.triggered.connect(lambda: self._open_path(DATA_DIR))
-        act_out = QAction("output 目录", self)
+        act_out = QAction("结果目录", self)
         act_out.triggered.connect(lambda: self._open_path(OUTPUT_DIR))
         open_menu.addAction(act_data)
         open_menu.addAction(act_out)
@@ -178,21 +176,15 @@ class MainWindow(QMainWindow):
 
         right = QWidget()
         right_layout = QVBoxLayout(right)
-        right_layout.setContentsMargins(12, 10, 12, 10)
-        right_layout.setSpacing(8)
+        # 无重复页标题后略收紧顶边距，把空间留给表单与日志
+        right_layout.setContentsMargins(12, 8, 12, 8)
+        right_layout.setSpacing(6)
 
-        from PySide6.QtGui import QFont
-
-        from .theme_style import FONT_PAGE_TITLE
-
-        self.page_title = SubtitleLabel(MODE_LABELS[0][1])
-        tf = self.page_title.font()
-        tf.setPointSize(FONT_PAGE_TITLE)
-        tf.setWeight(QFont.DemiBold)
-        self.page_title.setFont(tf)
-        right_layout.addWidget(self.page_title)
-
+        # 上：模式页  下：操作条+日志 — 中间分割条可拖动改日志高度
         splitter = QSplitter(Qt.Vertical)
+        splitter.setObjectName("mainWorkSplitter")
+        splitter.setChildrenCollapsible(False)
+        splitter.setHandleWidth(8)
 
         self.stack = QStackedWidget()
         self.single_page = SinglePage()
@@ -213,9 +205,15 @@ class MainWindow(QMainWindow):
 
         bottom = QWidget()
         bottom_layout = QVBoxLayout(bottom)
-        bottom_layout.setContentsMargins(0, 0, 0, 0)
+        bottom_layout.setContentsMargins(0, 4, 0, 0)
+        bottom_layout.setSpacing(6)
 
-        btn_row = QHBoxLayout()
+        # 全局底栏（所有模式共用）：操作 + 阶段/进度 + 打开结果/清空 — 单行，不重复「运行日志」标题行
+        self.log_panel = LogPanel()
+        bar = QHBoxLayout()
+        bar.setSpacing(8)
+        bar.setContentsMargins(0, 0, 0, 0)
+
         self.start_btn = PrimaryPushButton("开始")
         self.start_btn.clicked.connect(self.start_job)
         self.stop_btn = PushButton("停止")
@@ -223,23 +221,30 @@ class MainWindow(QMainWindow):
         self.stop_btn.clicked.connect(self.stop_job)
         self.copy_cli_btn = PushButton("复制命令行")
         self.copy_cli_btn.clicked.connect(self.copy_equivalent_cli)
-        # 根目录浏览走菜单「打开 → output/data」；底栏只跳转到本次/上次成功结果目录
+
         self.open_result_btn = PushButton("打开结果")
         self.open_result_btn.setEnabled(False)
-        self.open_result_btn.setToolTip("打开最近一次成功任务的结果目录（与日志中的路径一致）")
+        self.open_result_btn.setToolTip("打开最近一次成功任务的结果目录")
         self.open_result_btn.clicked.connect(self._open_last_result)
-        btn_row.addWidget(self.start_btn)
-        btn_row.addWidget(self.stop_btn)
-        btn_row.addWidget(self.copy_cli_btn)
-        btn_row.addStretch(1)
-        btn_row.addWidget(self.open_result_btn)
-        bottom_layout.addLayout(btn_row)
 
-        self.log_panel = LogPanel()
+        bar.addWidget(self.start_btn)
+        bar.addWidget(self.stop_btn)
+        bar.addWidget(self.copy_cli_btn)
+        bar.addSpacing(10)
+        bar.addWidget(self.log_panel.stage_label, 0)
+        bar.addWidget(self.log_panel.progress, 0)
+        bar.addStretch(1)
+        bar.addWidget(self.open_result_btn)
+        bar.addWidget(self.log_panel.clear_btn)
+
+        bottom_layout.addLayout(bar)
         bottom_layout.addWidget(self.log_panel, 1)
         splitter.addWidget(bottom)
         splitter.setStretchFactor(0, 3)
         splitter.setStretchFactor(1, 2)
+        # 默认表单区偏高、日志约 1/3；用户可拖分割条随时改
+        splitter.setSizes([520, 240])
+        self._main_splitter = splitter
 
         right_layout.addWidget(splitter, 1)
         outer.addWidget(right, 1)
@@ -334,12 +339,12 @@ class MainWindow(QMainWindow):
         row = self._mode_order.index(key)
         self.stack.setCurrentIndex(row)
         label = dict(MODE_LABELS).get(key, key)
-        self.page_title.setText(label)
+        # 模式名只由左侧导航表达，不再重复大标题
         runnable = key in RUNNABLE_MODES
         self.start_btn.setEnabled(runnable and self._worker is None)
         if key == MODE_SEARCH:
             self.start_btn.setText("开始处理勾选")
-            self.statusBar().showMessage("B站搜索：先点页面「搜索」，再勾选后点「开始处理勾选」")
+            self.statusBar().showMessage("视频搜索：先点「搜索」，勾选后点底部「开始」处理")
         elif key == MODE_TOOLS:
             self.start_btn.setText("运行工具")
             self.statusBar().showMessage("补跑工具：选择子工具后点「运行工具」")
@@ -362,14 +367,20 @@ class MainWindow(QMainWindow):
         if err:
             QMessageBox.warning(self, "无法搜索", err)
             return
-        keyword, count, order = self.search_page.search_params()
+        platform, keyword, count, order = self.search_page.search_params()
+        browser, cookies_file, po = self._cookies_from_page(self.search_page.cookies)
         request = JobRequest(
             kind="bilibili_search",
+            search_platform=platform,
             search_keyword=keyword,
             search_count=count,
             search_order=order,
+            cookies_from_browser=browser,
+            cookies_file=cookies_file,
+            youtube_po_token=po,
         )
-        self._launch(request, busy_message="正在搜索 B 站…")
+        label = "YouTube" if platform == "youtube" else "B 站"
+        self._launch(request, busy_message=f"正在搜索 {label}…")
 
     def start_job(self) -> None:
         if self._worker is not None:
@@ -656,7 +667,7 @@ class MainWindow(QMainWindow):
                 self.search_page.apply_result_statuses(result)
             elif isinstance(result, dict) and result.get("dry_run"):
                 planned = result.get("planned_urls") or []
-                items = [{"url": u, "title": u, "status": "计划处理", "note": "dry-run"} for u in planned]
+                items = [{"url": u, "title": u, "status": "计划处理", "note": "仅预览"} for u in planned]
                 skipped = result.get("skipped_before_run") or []
                 for item in skipped:
                     if isinstance(item, dict):
@@ -675,12 +686,12 @@ class MainWindow(QMainWindow):
                 if self.current_mode() == MODE_BATCH:
                     self.batch_page.table.set_items(items, default_status="计划")
                     self.batch_page.preview_label.setText(
-                        f"dry-run：计划 {len(planned)} 条，跳过 {len(skipped)} 条"
+                        f"预览：计划 {len(planned)} 条，跳过 {len(skipped)} 条"
                     )
                 elif self.current_mode() == MODE_SEARCH:
                     # mark planned on search table
                     for u in planned:
-                        self.search_page.table.set_row_status_by_url(str(u), "计划处理", "dry-run")
+                        self.search_page.table.set_row_status_by_url(str(u), "计划处理", "仅预览")
 
         if self._job_kind == "bilibili_search":
             self.log_panel.append("\n—— 搜索完成，请勾选后点「开始处理勾选」——\n")
@@ -689,8 +700,8 @@ class MainWindow(QMainWindow):
 
         if isinstance(result, dict) and result.get("dry_run"):
             planned = result.get("planned_urls") or []
-            self.log_panel.append(f"\n—— dry-run 完成：计划处理 {len(planned)} 条 ——\n")
-            self.statusBar().showMessage("dry-run 完成")
+            self.log_panel.append(f"\n—— 预览完成：计划处理 {len(planned)} 条 ——\n")
+            self.statusBar().showMessage("预览完成")
             QMessageBox.information(
                 self,
                 "预览完成",
@@ -845,8 +856,8 @@ class MainWindow(QMainWindow):
             QMessageBox.information(
                 self,
                 "打开结果",
-                "还没有可打开的结果目录。\n完成一次任务后，这里会跳转到日志中对应的结果路径。\n"
-                "浏览整个 output / data 根目录请用菜单「打开」。",
+                "还没有可打开的结果目录。\n"
+                "完成一次任务后即可跳转；也可使用菜单「打开 → 结果目录」。",
             )
             return
         path = Path(self._last_result_dir)
@@ -861,7 +872,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(
                 self,
                 "打开结果",
-                f"结果目录已不存在：\n{path}\n\n可用菜单「打开 → output 目录」浏览根目录。",
+                "结果目录已不存在。\n可用菜单「打开 → 结果目录」浏览。",
             )
             return
         self._open_path(path)
@@ -949,7 +960,6 @@ class MainWindow(QMainWindow):
             )
 
     def _about(self) -> None:
-        ff_msg = ffmpeg_status_message()
         box = QMessageBox(self)
         box.setWindowTitle(f"关于 {APP_NAME_ZH}")
         box.setIcon(QMessageBox.Information)
@@ -958,14 +968,10 @@ class MainWindow(QMainWindow):
             f"<p><b>{APP_WINDOW_TITLE}</b><br/>"
             f"{APP_ABOUT}<br/>"
             f"版本 {APP_VERSION}</p>"
-            f"<p>功能：单条 / 批量 / B站搜索 / 仅下载 / 补跑工具<br/>"
-            f"成稿模板：prompts/articles（GUI 下拉）<br/>"
-            f"系统基础提示词：prompts/system（默认不展示）</p>"
-            f"<p>{ff_msg}</p>"
+            f"<p>单条 · 批量 · 视频搜索 · 仅下载 · 补跑工具</p>"
             f'<p>作者博客：<a href="{BLOG_URL}">{BLOG_URL}</a></p>'
         )
         box.setStandardButtons(QMessageBox.Ok)
-        # Allow clicking the link
         for label in box.findChildren(QLabel):
             label.setOpenExternalLinks(True)
             label.setTextInteractionFlags(Qt.TextBrowserInteraction)

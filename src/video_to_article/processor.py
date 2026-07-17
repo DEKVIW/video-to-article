@@ -903,8 +903,7 @@ def process_regen_cover(
     if cover_mode == COVER_MODE_OFF:
         return {"success": False, "error": "封面已关闭（--no-cover-assets），无法补封面"}
     cover_config = config.get("ai_cover", {}) if isinstance(config, dict) else {}
-    if cover_mode_generates_image(cover_mode) and not cover_config.get("enable", False):
-        return {"success": False, "error": "config.json 中 ai_cover.enable 未开启，无法自动生图"}
+    # cover_mode 已由 CLI/GUI 解析；full 时在 apply 内调 API，缺 Key 会在 cover 层报错
 
     article_text = article_path.read_text(encoding="utf-8", errors="replace")
     parsed_frontmatter, _ = split_frontmatter(article_text)
@@ -1099,10 +1098,15 @@ def get_article_cover(article_file: Path) -> str:
 
 def cover_frontmatter_expected(config: dict) -> bool:
     """Return whether current config intends to write a cover into article front-matter."""
+    from .cover import COVER_MODE_FULL, resolve_cover_pipeline_from_config
+
     cover_config = config.get("ai_cover", {}) if isinstance(config, dict) else {}
     image_host_config = config.get("image_host", {}) if isinstance(config, dict) else {}
+    pipeline = resolve_cover_pipeline_from_config(
+        cover_config if isinstance(cover_config, dict) else {}
+    )
     return bool(
-        cover_config.get("enable", False)
+        pipeline == COVER_MODE_FULL
         and (
             image_host_config.get("enable", False)
             or cover_config.get("use_model_output_url_in_frontmatter", False)

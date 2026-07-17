@@ -9,7 +9,7 @@ APP_NAME_EN = "YilanChengWen"
 APP_WINDOW_TITLE = "一览成文 — 视频整理工作台"
 APP_ABOUT = "视频转写 · 多类型文章模板 · 可选封面"
 APP_ORG = "yilanapp"
-APP_VERSION = "0.3.0"
+APP_VERSION = "0.4.5"
 
 # 作者博客（帮助菜单 / 关于 / 侧栏 / 状态栏可点击打开）
 BLOG_URL = "https://blog.yilanapp.com/"

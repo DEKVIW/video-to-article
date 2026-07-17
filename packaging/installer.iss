@@ -12,7 +12,7 @@
 ;   Double-click Setup.exe → Next → Install → Desktop shortcut → Launch
 
 #define MyAppName "一览成文"
-#define MyAppVersion "0.3.0"
+#define MyAppVersion "0.4.5"
 #define MyAppPublisher "yilanapp"
 #define MyAppExeName "YilanChengWen.exe"
 ; Project root is parent of packaging\

@@ -55,6 +55,55 @@
 - Python **3.10+**（推荐 3.12）
 - **FFmpeg**（开发环境可装系统版；绿色包可内置 `ffmpeg/`）
 
+## 软件下载与离线模型（弱网推荐）
+
+若不便从源码构建，或网络不稳定，可用预编译绿色包 + FunASR 语音模型。
+
+链接：https://pan.quark.cn/s/6971a6e70b44
+
+说明：
+
+- 分享内容面向 **弱网 / 不便联网下模型** 的场景，含 **软件本体** 与 **转写用语音模型**（体积较大）。
+- 也可在 GitHub [Releases](https://github.com/DEKVIW/video-to-article/releases) 下载对应版本的主程序 zip；模型包较大时，弱网优先用网盘。
+
+### 解压建议
+
+| 程序解压位置 | 建议 | 模型默认位置 |
+| --- | --- | --- |
+| **纯英文路径**（如 `D:\Apps\YilanChengWen\`） | **强烈推荐** | 程序旁 `models\funasr\` |
+| **含中文路径**（如 `…\我的项目\…`） | 能运行，但不理想 | 不会用中文路径当「可靠加载路径」，见下表 |
+
+底层 FunASR / SentencePiece 对 **含中文的模型文件路径** 兼容差，程序会尽量把缓存放到 **纯英文路径**。
+
+### 离线模型怎么放
+
+1. 解压绿色包到目标目录，双击 `YilanChengWen.exe`。
+2. 解压模型包，将其中的 **`models` 文件夹** 合并到 `YilanChengWen.exe` **同级**（不要多套一层目录）。
+3. 确认存在：
+
+   `models\funasr\models\iic\SenseVoiceSmall\model.pt`
+
+4. 仅「下载视频 / 字幕」、不做本地转写时，**不需要**语音模型。
+
+| 场景 | 能否直接用 |
+| --- | --- |
+| 程序在 **英文路径**，模型在 exe 同级 `models\funasr\` | ✅ 标准用法 |
+| 程序在中文路径，模型放到同盘 **`盘符:\YilanChengWenData\models\funasr\`** | ✅ 与自动策略一致（路径须为纯英文） |
+| 设置 → 转写 →「FunASR 模型目录」填 **纯英文** 路径 | ✅ 自定义优先 |
+
+**中文路径下不要默认「拷到程序同级就一定能读」**；最省事仍是：程序解压到英文目录 + 模型合并到 exe 旁。
+
+### 模型实际落在哪
+
+- **英文程序路径**：`程序目录\models\funasr\`
+- **中文程序路径**（自动避开中文路径加载）：
+  - 优先：同盘 `盘符:\YilanChengWenData\models\funasr\`
+  - 回退：`%LOCALAPPDATA%\YilanChengWen\models\funasr\`
+- **自定义**：设置中的「FunASR 模型目录」或环境变量 `YILAN_FUNASR_DIR` / `VQE_FUNASR_DIR`（须纯英文）
+- 运行日志里「FunASR/ModelScope 模型缓存目录」= 本次实际使用的目录
+
+首次联网转写也会把模型下到上述缓存位置（约 1GB 级磁盘）。
+
 ## 本地环境启动
 
 在项目根目录 PowerShell：
@@ -90,9 +139,9 @@ python transcribe.py --help
 # video-to-article --help
 ```
 
-> 首次本地转写会下载 FunASR 模型（体积较大）。也可另行准备离线模型包，合并到程序旁的 `models\funasr\`（与主程序版本无关）。
+> 首次本地转写会下载 FunASR 模型（体积较大）。开发与绿色版均可使用离线模型包；放置规则见上文「绿色版下载与离线模型」。建议项目/程序路径尽量使用纯英文。
 
-## 打包构建（绿色版）
+## 打包构建
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
@@ -104,7 +153,7 @@ powershell -ExecutionPolicy Bypass -File scripts\build_gui_onedir.ps1
 | 路径 | 说明 |
 | --- | --- |
 | `dist/YilanChengWen/` | 最新可运行目录 |
-| `dist/releases/YilanChengWen-x.y.z.zip` | 对外分发 zip |
+| `dist/releases/YilanChengWen-x.y.z.zip` | 对外分发主程序 zip（一般不含语音大模型权重） |
 | `dist/releases/YilanChengWen-models-funasr-sensevoice.zip` | 可选：离线 FunASR 模型（需另打） |
 
 ```powershell
@@ -112,9 +161,9 @@ powershell -ExecutionPolicy Bypass -File scripts\build_gui_onedir.ps1
 python packaging/make_models_funasr_zip.py
 ```
 
-用户：解压主程序 zip → 双击 `YilanChengWen.exe`；需要离线转写时再合并模型包中的 `models` 到 exe 同级。
+用户：解压主程序 zip → 双击 `YilanChengWen.exe`；需要离线转写时按上文合并 `models`（注意英文/中文路径差异）。
 
-## 源码结构（简）
+## 源码结构
 
 ```text
 .

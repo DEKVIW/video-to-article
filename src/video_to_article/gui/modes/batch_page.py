@@ -72,7 +72,7 @@ class BatchPage(QWidget):
 
         list_row = QHBoxLayout()
         self.list_edit = LineEdit()
-        self.list_edit.setPlaceholderText("data\\urls.txt")
+        self.list_edit.setPlaceholderText("选择或填写清单文件路径")
         list_browse = PushButton("浏览")
         list_browse.setFixedWidth(64)
         list_browse.clicked.connect(self._browse_list)
@@ -150,7 +150,7 @@ class BatchPage(QWidget):
         self.batch_root_edit.setPlaceholderText("可选 batch-root")
         self.write_list = CheckBox("写入清单 --write-list")
         self.write_list_path = LineEdit()
-        self.write_list_path.setPlaceholderText("空/auto → data/…")
+        self.write_list_path.setPlaceholderText("可选：写出清单路径，空=自动")
         self.auto_repair = CheckBox("自动补救 --auto-repair")
         self.repair_rounds = SpinBox()
         self.repair_rounds.setRange(1, 10)
@@ -277,7 +277,7 @@ class BatchPage(QWidget):
                 self.preview_label.setText(
                     f"开始时展开：{url}"
                     + (f"（上限 {lim}）" if lim else "（不限展开）")
-                    + " · 可先 dry-run"
+                    + " · 可先仅预览"
                 )
         except Exception as exc:
             self.preview_label.setText(f"预览失败: {exc}")
