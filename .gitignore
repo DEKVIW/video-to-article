@@ -28,10 +28,8 @@ src/*.egg-info/
 .ruff_cache/
 .mypy_cache/
 
-# 本地/私有文档默认不入库；仅收录已确认要公开的说明
-docs/**
-!docs/
-!docs/git-clean-contributors.md
+# 本地文档不入库（含操作备忘，仅本机保留）
+docs/
 
 # 项目配置和数据（含密钥 / 用户数据）
 config.json
